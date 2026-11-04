@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>누구나 사용할 수 있는 GIF 생성기</title>
+  <link rel="icon" href="assets/kmou-mark.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&family=Outfit:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <script>
+    (function () {
+      function filesOf(list) {
+        return list && list.length ? Array.prototype.slice.call(list) : null;
+      }
+      function remember(list) {
+        var files = filesOf(list);
+        if (!files) return;
+        if (window.__takeFiles) window.__takeFiles(files);
+        else window.__pendingFile = files;
+      }
+      document.addEventListener("dragover", function (event) {
+        event.preventDefault();
+      }, true);
+      document.addEventListener("drop", function (event) {
+        event.preventDefault();
+        if (window.__takeFiles) return;
+        remember(event.dataTransfer && event.dataTransfer.files);
+      }, true);
+      document.addEventListener("change", function (event) {
+        if (!event.target || event.target.id !== "file-input") return;
+        if (window.__takeFiles) return;
+        remember(event.target.files);
+      }, true);
+    })();
+  </script>
+</head>
+<body>
+  <header class="topbar">
+    <img class="mark" src="assets/kmou-mark.png" alt="국립한국해양대학교 마크">
+    <h1 class="site-name">누구나 사용할 수 있는 GIF 생성기</h1>
+  </header>
+
+  <main>
+    <section class="hero" aria-labelledby="hero-title">
+      <p class="fps-pill">1초당 30프레임을 잘라 GIF로 저장</p>
+      <h2 id="hero-title">Video를 gif로 변환</h2>
+      <p class="sublead">동영상을 애니로</p>
+
+      <label id="picker" class="picker" for="file-input">
+        <span class="sprocket" aria-hidden="true"></span>
+        <span class="picker-body">
+          <span class="picker-icon" aria-hidden="true">
+            <svg viewBox="0 0 48 48" width="46" height="46">
+              <rect x="6" y="10" width="36" height="28" rx="4" fill="none" stroke="currentColor" stroke-width="2.4"/>
+              <path d="M20 18.5v11l10-5.5-10-5.5z" fill="currentColor"/>
+            </svg>
+          </span>
+          <span class="picker-title">동영상 파일 선택</span>
+          <span class="picker-hint">누르면 폴더가 열립니다. 파일은 한 번에 하나만 고를 수 있고, 이 칸으로 끌어다 놓아도 됩니다.</span>
+        </span>
+        <span class="sprocket" aria-hidden="true"></span>
+      </label>
+      <input id="file-input" type="file">
+      <p id="engine" class="engine" role="status">변환 엔진을 준비하고 있습니다.</p>
+      <p id="notice" class="notice" role="status" hidden></p>
+    </section>
+
+    <section id="format-error" class="banner" hidden role="alert">
+      <h3>이 파일은 GIF로 변환할 수 없습니다</h3>
+      <p id="format-error-detail"></p>
+      <p>아래 아이콘의 동영상 형식 중에서 다시 선택해 주세요. 고른 파일은 가로·세로 크기를 바꾼 뒤 30FPS GIF로 저장할 수 있습니다.</p>
+    </section>
+
+    <section class="formats" aria-labelledby="format-title">
+      <h3 id="format-title">GIF로 바꿀 수 있는 동영상 형식</h3>
+      <p class="formats-lead">컴퓨터에서 흔히 쓰는 영상 형식입니다. 모두 크기를 조정한 뒤 변환할 수 있습니다.</p>
+      <ul id="format-list" class="format-list"></ul>
+    </section>
+
+    <section id="workspace" class="workspace" hidden>
+      <h3>업로드한 파일</h3>
+      <div class="file-layout">
+        <div class="preview-wrap">
+          <video id="video-preview" controls playsinline></video>
+          <p id="preview-fallback" class="preview-fallback" hidden>이 형식은 화면에서 미리 재생되지 않습니다. 정보 확인 후 GIF로 변환할 수 있습니다.</p>
+        </div>
+        <dl id="file-info" class="file-info"></dl>
+      </div>
+
+      <form id="settings" class="settings">
+        <h3>크기와 구간</h3>
+        <p class="settings-lead">선택한 구간을 1초당 30프레임으로 잘라 GIF로 만듭니다. 시작과 끝은 영상 길이 안에서 원하는 대로 바꿀 수 있습니다.</p>
+
+        <div class="control">
+          <label for="width">가로 크기 <strong id="width-label">480px</strong></label>
+          <input id="width" type="range" min="160" max="960" step="2" value="480">
+        </div>
+
+        <label class="check">
+          <input id="lock-ratio" type="checkbox" checked>
+          세로 크기를 원본 비율에 맞춥니다
+        </label>
+
+        <div class="control">
+          <label for="height">세로 크기 <strong id="height-label">-</strong></label>
+          <input id="height" type="range" min="2" max="960" step="2" value="270" disabled>
+        </div>
+
+        <p id="size-readout" class="size-readout">출력 크기 480 × 270</p>
+
+        <div class="clip-grid">
+          <div class="control">
+            <label for="start">시작 <strong id="start-label">0.0초</strong></label>
+            <input id="start" type="range" min="0" max="600" step="0.1" value="0">
+            <input id="start-num" class="text-field" type="number" min="0" max="600" step="0.1" value="0" aria-label="시작 초">
+          </div>
+          <div class="control">
+            <label for="end">끝 <strong id="end-label">8.0초</strong></label>
+            <input id="end" type="range" min="0.2" max="600" step="0.1" value="8">
+            <input id="end-num" class="text-field" type="number" min="0.2" max="600" step="0.1" value="8" aria-label="끝 초">
+          </div>
+        </div>
+        <p id="frame-readout" class="size-readout">선택 길이 8.0초 · 약 240프레임 · 30FPS</p>
+        <p id="frame-warning" class="frame-warning" hidden>구간이 깁니다. 목표 용량을 정하거나 끝을 앞당기면 더 수월합니다.</p>
+
+        <div class="control">
+          <label for="target-kb">목표 용량 <strong id="target-label">제한 없음</strong></label>
+          <input id="target-kb" class="text-field" type="number" min="0" step="1" placeholder="KB, 예: 500">
+          <p class="field-hint">숫자를 넣으면 그 용량에 맞게 화질, 크기, 프레임 수를 자동으로 낮춥니다. 비우면 30FPS 화질을 유지합니다.</p>
+        </div>
+
+        <div class="control">
+          <label for="caption">GIF 글자</label>
+          <input id="caption" class="text-field" type="text" maxlength="80" placeholder="넣을 글자를 입력하세요">
+        </div>
+        <div class="clip-grid">
+          <div class="control">
+            <label for="caption-place">글자 위치</label>
+            <select id="caption-place" class="text-field">
+              <option value="bottom">아래</option>
+              <option value="center">가운데</option>
+              <option value="top">위</option>
+            </select>
+          </div>
+          <div class="control">
+            <label for="caption-color">글자 색</label>
+            <input id="caption-color" type="color" value="#ffffff">
+          </div>
+        </div>
+        <label class="check">
+          <input id="caption-type" type="checkbox" checked>
+          글자가 타이핑되듯 나타납니다
+        </label>
+
+        <button id="convert" class="convert" type="submit">30FPS GIF로 변환</button>
+        <div id="progress-wrap" class="progress-wrap" hidden>
+          <div class="progress-row">
+            <div class="progress-main">
+              <div id="progress-track" class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="변환 진행도">
+                <div id="progress-bar" class="progress-bar"></div>
+              </div>
+              <p id="progress-text">프레임을 자르는 중입니다.</p>
+              <p id="done-name" class="done-name" hidden></p>
+            </div>
+            <button id="download" class="download" type="button" disabled>다운로드</button>
+          </div>
+          <div id="thumbs" class="thumbs" aria-label="생성된 GIF 프레임 미리보기"></div>
+        </div>
+      </form>
+    </section>
+
+    <section id="result" class="result" hidden>
+      <h3>만들어진 GIF</h3>
+      <img id="gif-preview" alt="변환된 GIF 미리보기">
+      <dl id="gif-info" class="file-info"></dl>
+    </section>
+  </main>
+
+  <script src="vendor/ffmpeg/classic.js"></script>
+  <script src="boot.js"></script>
+</body>
+</html>
