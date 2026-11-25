@@ -1,5 +1,6 @@
 (function () {
   const engine = document.getElementById("engine");
+  const editorEngine = document.getElementById("editor-engine-status");
 
   function addScript(src) {
     return new Promise((resolve, reject) => {
@@ -14,8 +15,11 @@
   async function start() {
     try {
       await addScript("app.js");
+      await addScript("editor.js");
     } catch (error) {
-      if (engine) engine.textContent = error.message || "화면을 불러오지 못했습니다.";
+      const msg = error.message || "화면을 불러오지 못했습니다.";
+      if (engine) engine.textContent = msg;
+      if (editorEngine) editorEngine.textContent = msg;
     }
   }
 

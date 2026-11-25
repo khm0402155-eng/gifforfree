@@ -1,6 +1,8 @@
 const ffmpeg = new window.FFmpeg();
 let progressFloor = 0;
 let progressSpan = 1;
+let customProgressHandler = null;
+let customLogHandler = null;
 
 const VIDEO_FORMATS = [
   ["mp4", "MP4"],
@@ -52,6 +54,7 @@ const $ = (id) => document.getElementById(id);
 const picker = $("picker");
 const fileInput = $("file-input");
 const engineEl = $("engine");
+const editorEngineEl = $("editor-engine-status");
 const noticeEl = $("notice");
 const formatError = $("format-error");
 const formatErrorDetail = $("format-error-detail");
@@ -86,10 +89,20 @@ const convertBtn = $("convert");
 const progressWrap = $("progress-wrap");
 const progressBar = $("progress-bar");
 const progressText = $("progress-text");
+const generatorRudolph = $("generator-rudolph");
+const genLiveFrameImg = $("gen-live-frame-img");
+const genLiveFrameBadge = $("gen-live-frame-badge");
+const genFrameCounter = $("gen-frame-counter");
+const genInternalStage = $("gen-internal-stage");
+const genEngineTelemetry = $("gen-engine-telemetry");
+let genLiveFrameUrl = "";
 const result = $("result");
 const gifPreview = $("gif-preview");
 const gifInfo = $("gif-info");
 const downloadBtn = $("download");
+const editGeneratedBtn = $("edit-generated-gif");
+const copyGeneratedBtn = $("copy-generated-gif");
+const generatorOnelineSummary = $("generator-oneline-summary");
 const doneName = $("done-name");
 const thumbs = $("thumbs");
 const progressTrack = $("progress-track");
@@ -100,6 +113,8 @@ let converting = false;
 let logLines = [];
 let mediaUrl = "";
 let gifUrl = "";
+let latestGeneratedBlob = null;
+let latestGeneratedName = "";
 let current = null;
 let token = 0;
 
@@ -144,6 +159,11 @@ function even(value) {
   return rounded - (rounded % 2);
 }
 
+function setEngineStatus(genText, edText) {
+  if (engineEl) engineEl.textContent = genText;
+  if (editorEngineEl) editorEngineEl.textContent = edText || genText;
+}
+
 function showNotice(message) {
   noticeEl.hidden = !message;
   noticeEl.textContent = message || "";
@@ -155,6 +175,7 @@ function showFormatError(detail) {
   formatSection.classList.add("is-alert");
   workspace.hidden = true;
   result.hidden = true;
+  window.GifStudio?.syncSnow?.();
   formatError.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
@@ -210,12 +231,12 @@ function loadScript(src) {
 
 async function ensureFileEngine() {
   if (window.FFMPEG_CORE_B64 && window.FFMPEG_WASM_B64) return;
-  engineEl.textContent = "변환 엔진 파일을 불러오는 중입니다. 이 폴더의 index를 직접 열면 처음 준비가 조금 걸립니다.";
+  setEngineStatus("변환 엔진 파일을 불러오는 중입니다. 잠시만 기다려 주세요.");
   await loadScript("vendor/core/parts/manifest.js");
   await loadScript("vendor/core/parts/core.js");
   const files = window.FFMPEG_PART_FILES || [];
   for (let index = 0; index < files.length; index += 1) {
-    engineEl.textContent = `변환 엔진 파일을 불러오는 중 (${index + 1}/${files.length})`;
+    setEngineStatus(`엔진 구성 요소를 불러오는 중 (${index + 1}/${files.length})`);
     await loadScript(`vendor/core/parts/${files[index]}`);
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
@@ -241,7 +262,7 @@ function errorText(error) {
 async function engineFiles() {
   if (location.protocol === "file:") {
     await ensureFileEngine();
-    engineEl.textContent = "변환 엔진을 준비하고 있습니다.";
+    setEngineStatus("변환 엔진을 준비하고 있습니다.");
     const coreText = new TextDecoder().decode(base64ToBytes(window.FFMPEG_CORE_B64));
     const wasmBinary = base64ToBytes(window.FFMPEG_WASM_B64);
     window.FFMPEG_CORE_B64 = "";
@@ -263,6 +284,7 @@ async function engineFiles() {
 function setProgress(percent, text) {
   const pct = Math.max(0, Math.min(100, Math.round(percent)));
   progressBar.style.width = `${pct}%`;
+  if (generatorRudolph) generatorRudolph.style.left = `${pct}%`;
   progressTrack.setAttribute("aria-valuenow", String(pct));
   if (text) progressText.textContent = text;
 }
@@ -293,19 +315,31 @@ function loadEngine() {
   engineReady = (async () => {
     ffmpeg.on("log", ({ message }) => {
       logLines.push(message);
+      if (customLogHandler) {
+        customLogHandler(message);
+      } else if (converting && genEngineTelemetry && message && message.trim()) {
+        genEngineTelemetry.textContent = `[FFmpeg WASM] ${message.trim()}`;
+      }
     });
     ffmpeg.on("progress", ({ progress }) => {
-      if (!converting) return;
       const local = Math.max(0, Math.min(1, Number(progress) || 0));
+      if (customProgressHandler) {
+        customProgressHandler(local);
+        return;
+      }
+      if (!converting) return;
       setProgress((progressFloor + local * progressSpan) * 100);
     });
     const files = await engineFiles();
     await ffmpeg.load(files);
-    engineEl.textContent = "변환 엔진이 준비되었습니다. 동영상 하나를 선택해 주세요.";
+    setEngineStatus(
+      "❄️ 변환 엔진 준비 완료! 동영상 하나를 선택해 주세요.",
+      "❄️ 초 고성능 GIF 편집 엔진 준비 완료! GIF 파일을 올려주세요."
+    );
     return true;
   })().catch((error) => {
     console.error(error);
-    engineEl.textContent = `변환 엔진을 불러오지 못했습니다. ${errorText(error)}`;
+    setEngineStatus(`엔진을 불러오지 못했습니다. ${errorText(error)}`);
     return false;
   });
   return engineReady;
@@ -450,6 +484,8 @@ function resetResult() {
   result.hidden = true;
   revoke(gifUrl);
   gifUrl = "";
+  latestGeneratedBlob = null;
+  latestGeneratedName = "";
   gifPreview.removeAttribute("src");
   downloadBtn.disabled = true;
   downloadBtn.dataset.name = "";
@@ -471,23 +507,27 @@ async function acceptFile(file, extraNote = false) {
     const label = ext ? `.${ext}` : "확장자가 없는 파일";
     showFormatError(`${file.name} (${label}) 은 동영상 형식이 아닙니다.`);
     current = null;
+    window.GifStudio?.syncSnow?.();
     return;
   }
 
   if (file.size === 0) {
     showFormatError("빈 파일입니다. 내용이 있는 동영상 파일을 선택해 주세요.");
     current = null;
+    window.GifStudio?.syncSnow?.();
     return;
   }
 
   if (file.size > 400 * 1024 * 1024) {
     showFormatError("파일이 400MB보다 큽니다. 더 짧은 영상이나 더 작은 파일로 다시 선택해 주세요.");
     current = null;
+    window.GifStudio?.syncSnow?.();
     return;
   }
 
   current = { file, ext, duration: null, video: null };
   workspace.hidden = false;
+  window.GifStudio?.syncSnow?.();
   setPreview(file, ext);
   infoRows(fileInfo, [
     ["파일 이름", file.name],
@@ -504,7 +544,7 @@ async function acceptFile(file, extraNote = false) {
     current.video = parsed.video;
     const sourceWidth = parsed.video.width;
     widthInput.value = String(even(Math.min(sourceWidth, 480)));
-    heightInput.value = String(even(widthInput.value * parsed.video.height / sourceWidth));
+    heightInput.value = String(even((widthInput.value * parsed.video.height) / sourceWidth));
     const duration = parsed.duration;
     startNum.value = "0";
     endNum.value = String(duration && duration > 0 ? Math.min(duration, 8) : 5);
@@ -512,6 +552,7 @@ async function acceptFile(file, extraNote = false) {
     syncSizeControls();
     clipBounds();
     convertBtn.disabled = false;
+    window.GifStudio?.syncSnow?.();
     const notes = [];
     if (extraNote) notes.push("한 번에 파일 하나만 선택할 수 있습니다. 첫 번째 파일만 사용합니다.");
     if (!VIDEO_EXT.has(ext)) notes.push("목록 밖의 형식이지만 영상 트랙을 읽었습니다. 크기 조정 후 30FPS GIF로 변환할 수 있습니다.");
@@ -520,6 +561,8 @@ async function acceptFile(file, extraNote = false) {
     if (myToken !== token) return;
     console.error(error);
     current = null;
+    workspace.hidden = true;
+    window.GifStudio?.syncSnow?.();
     const label = ext ? `.${ext}` : "이 형식";
     const detail = errorText(error);
     if (error.unsupported) {
@@ -567,6 +610,7 @@ picker.addEventListener("drop", (event) => {
 
 document.addEventListener("dragover", (event) => event.preventDefault());
 document.addEventListener("drop", (event) => {
+  if (document.body.getAttribute("data-mode") !== "generator") return;
   if (!event.target.closest("#picker")) event.preventDefault();
 });
 
@@ -754,7 +798,7 @@ settings.addEventListener("submit", async (event) => {
     return;
   }
 
-  const { start, length, frames } = clipBounds();
+  const { start, frames } = clipBounds();
   const { width, height } = outputSize();
   const ext = current.ext || "bin";
   const inputName = `input.${ext}`;
@@ -765,7 +809,12 @@ settings.addEventListener("submit", async (event) => {
   resetResult();
   progressWrap.hidden = false;
   downloadBtn.disabled = true;
-  setProgress(0, "영상 파일을 읽고 있습니다.");
+  setProgress(0, "🦌 루돌프가 영상 파일을 읽고 있습니다...");
+  if (genFrameCounter) genFrameCounter.textContent = `0/${frames} 프레임 처리 중`;
+  if (genInternalStage) {
+    genInternalStage.textContent = `내부 작업: 동영상 디코딩 및 ${width}×${height}px Lanczos 리샘플링 준비 중`;
+  }
+  if (genEngineTelemetry) genEngineTelemetry.textContent = "[FFmpeg WASM] 입력 스트림 버퍼 적재 중...";
   logLines = [];
 
   try {
@@ -783,7 +832,7 @@ settings.addEventListener("submit", async (event) => {
         const at = start + produced / 30;
         progressFloor = (produced / frames) * 0.6;
         progressSpan = (count / frames) * 0.6;
-        setProgress(progressFloor * 100, `30FPS 프레임 ${produced}/${frames}`);
+        setProgress(progressFloor * 100, `🦌 루돌프가 30FPS 프레임 추출 중 (${produced}/${frames})`);
         const code = await ffmpeg.exec([
           "-ss", at.toFixed(3),
           "-i", inputName,
@@ -803,10 +852,20 @@ settings.addEventListener("submit", async (event) => {
             break;
           }
           master.push(data.slice());
+          if (genLiveFrameImg) {
+            revoke(genLiveFrameUrl);
+            genLiveFrameUrl = URL.createObjectURL(new Blob([data.slice()], { type: "image/jpeg" }));
+            genLiveFrameImg.src = genLiveFrameUrl;
+          }
+          if (genLiveFrameBadge) genLiveFrameBadge.textContent = `#${master.length}`;
+          if (genFrameCounter) genFrameCounter.textContent = `${master.length}/${frames} 프레임 처리 중`;
+          if (genInternalStage) {
+            genInternalStage.textContent = `내부 작업: 영상 구간(${(start + master.length / 30).toFixed(2)}s) 디코딩 → ${width}×${height}px 프레임 추출 중`;
+          }
           if (master.length === 1 || master.length % thumbStride === 0) addThumb(data.slice(), master.length);
           try { await ffmpeg.deleteFile(src); } catch { /* ignore */ }
           wrote += 1;
-          setProgress((master.length / frames) * 60, `30FPS 프레임 ${master.length}/${frames}`);
+          setProgress((master.length / frames) * 60, `${master.length}/${frames} 프레임 처리 중 (30FPS 프레임 분리)`);
         }
         if (!wrote) {
           const text = logLines.join("\n").toLowerCase();
@@ -825,16 +884,23 @@ settings.addEventListener("submit", async (event) => {
         const plan = plans[index];
         progressFloor = 0.62 + (index / plans.length) * 0.33;
         progressSpan = 0.33 / plans.length;
+        if (genInternalStage) {
+          genInternalStage.textContent = `내부 작업: ${plan.colors}색 최적 팔레트(Palettegen) 생성 및 바이어 디더링 GIF 합성 중 (${plan.fps}FPS)`;
+        }
         setProgress(progressFloor * 100, limit
-          ? `목표 용량에 맞추는 중 · ${plan.fps}FPS`
-          : "프레임을 GIF로 묶는 중입니다.");
+          ? `🦌 목표 용량에 맞추는 중 · ${plan.fps}FPS (${plan.colors}색 팔레트 압축)`
+          : "🦌 루돌프가 추출된 프레임을 팔레트 매핑하여 GIF로 묶는 중입니다...");
         chosen = await encodeSelection(master, plan, width, height, caption);
         if (!limit || chosen.gif.byteLength <= limit) break;
       }
+      if (genFrameCounter) genFrameCounter.textContent = `${chosen.painted.length}/${chosen.painted.length} 프레임 처리 완료`;
+      if (genInternalStage) genInternalStage.textContent = "내부 작업 완료: GIF89a 루프 스트림 패키징이 끝났습니다!";
       showFrameStrip(chosen.painted);
       return chosen;
     });
     const blob = new Blob([savedFrames.gif], { type: "image/gif" });
+    latestGeneratedBlob = blob;
+    latestGeneratedName = fileName;
     gifUrl = URL.createObjectURL(blob);
     gifPreview.src = gifUrl;
     downloadBtn.disabled = false;
@@ -842,7 +908,7 @@ settings.addEventListener("submit", async (event) => {
     doneName.hidden = false;
     doneName.textContent = fileName;
     const fitted = !limit || blob.size <= limit;
-    setProgress(100, fitted && limit && savedFrames.fps < 30 ? "목표 용량에 맞춰 압축했습니다." : "변환이 완료되었습니다.");
+    setProgress(100, fitted && limit && savedFrames.fps < 30 ? "🎄 목표 용량에 맞춰 압축 완료!" : "🎄 GIF 변환이 완료되었습니다!");
     if (limit && blob.size > limit) {
       showNotice(`만든 GIF는 ${formatBytes(blob.size)}입니다. 목표 ${formatBytes(limit)}에 맞추려면 구간을 짧게 하거나 가로 크기를 낮춰 주세요.`);
     }
@@ -855,6 +921,10 @@ settings.addEventListener("submit", async (event) => {
       ["속도", `${savedFrames.fps}FPS`],
       ["글자", caption.text || "없음"],
     ]);
+    if (generatorOnelineSummary) {
+      const estSec = Number((savedFrames.painted.length / savedFrames.fps).toFixed(1));
+      generatorOnelineSummary.textContent = `✨ 이 GIF는 총 ${savedFrames.painted.length.toLocaleString("ko-KR")}장, ${estSec}초, 초당 ${savedFrames.fps}프레임입니다.`;
+    }
     result.hidden = false;
   } catch (error) {
     console.error(error);
@@ -894,7 +964,45 @@ downloadBtn.addEventListener("click", () => {
   document.body.appendChild(link);
   link.click();
   link.remove();
+  if (copyGeneratedBtn) {
+    copyGeneratedBtn.classList.add("tree-btn");
+    copyGeneratedBtn.classList.remove("ghost-holiday-btn");
+    showNotice("✅ 다운로드 완료! 아래 '클립보드에 복사' 버튼으로 바로 복사할 수도 있습니다.");
+  }
 });
+
+if (copyGeneratedBtn) {
+  copyGeneratedBtn.addEventListener("click", () => {
+    if (!latestGeneratedBlob) return;
+    window.GifStudio?.copyToClipboard?.(latestGeneratedBlob, "image/gif", copyGeneratedBtn);
+  });
+}
+
+if (editGeneratedBtn) {
+  editGeneratedBtn.addEventListener("click", () => {
+    if (!latestGeneratedBlob) return;
+    const generatedFile = new File([latestGeneratedBlob], latestGeneratedName || "generated.gif", {
+      type: "image/gif",
+    });
+    window.GifStudio?.openInEditor?.(generatedFile, { fromGenerator: true });
+  });
+}
+
+window.GifStudio = {
+  ffmpeg,
+  getEngineReady: () => engineReady,
+  enqueue,
+  setProgressHook: (fn) => { customProgressHandler = fn; },
+  setLogHook: (fn) => { customLogHandler = fn; },
+  clearLogs: () => { logLines = []; },
+  getLogs: () => logLines.slice(),
+  formatBytes,
+  formatSeconds,
+  infoRows,
+  isGeneratorUploaded: () => Boolean(current && !workspace.hidden),
+  syncSnow: null,
+  openInEditor: null,
+};
 
 clipBounds();
 updateTargetLabel();

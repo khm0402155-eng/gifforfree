@@ -3,180 +3,765 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>누구나 사용할 수 있는 GIF 생성기</title>
+  <title>현민‘s 초 고성능 GIF 편집기 &amp; 스마트 GIF 생성기</title>
   <link rel="icon" href="assets/kmou-mark.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&family=Outfit:wght@500;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&family=Outfit:wght@500;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
   <script>
     (function () {
       function filesOf(list) {
         return list && list.length ? Array.prototype.slice.call(list) : null;
       }
-      function remember(list) {
+      function rememberVideo(list) {
         var files = filesOf(list);
         if (!files) return;
         if (window.__takeFiles) window.__takeFiles(files);
         else window.__pendingFile = files;
+      }
+      function rememberGif(list, handlePromise) {
+        var files = filesOf(list);
+        if (!files) return;
+        if (window.__takeEditorFiles) window.__takeEditorFiles(files, handlePromise);
+        else window.__pendingEditorFile = { files: files, handlePromise: handlePromise || null };
       }
       document.addEventListener("dragover", function (event) {
         event.preventDefault();
       }, true);
       document.addEventListener("drop", function (event) {
         event.preventDefault();
-        if (window.__takeFiles) return;
-        remember(event.dataTransfer && event.dataTransfer.files);
+        var activeMode = document.body ? document.body.getAttribute("data-mode") : "editor";
+        var handlePromise = null;
+        try {
+          if (event.dataTransfer && event.dataTransfer.items && event.dataTransfer.items[0] && event.dataTransfer.items[0].getAsFileSystemHandle) {
+            handlePromise = event.dataTransfer.items[0].getAsFileSystemHandle();
+          }
+        } catch (e) { /* ignore */ }
+        if (activeMode === "generator") {
+          if (window.__takeFiles) return;
+          rememberVideo(event.dataTransfer && event.dataTransfer.files);
+        } else {
+          if (window.__takeEditorFiles) return;
+          rememberGif(event.dataTransfer && event.dataTransfer.files, handlePromise);
+        }
       }, true);
       document.addEventListener("change", function (event) {
-        if (!event.target || event.target.id !== "file-input") return;
-        if (window.__takeFiles) return;
-        remember(event.target.files);
+        if (!event.target) return;
+        if (event.target.id === "file-input") {
+          if (window.__takeFiles) return;
+          rememberVideo(event.target.files);
+        } else if (event.target.id === "editor-file-input") {
+          if (window.__takeEditorFiles) return;
+          rememberGif(event.target.files, null);
+        }
       }, true);
     })();
   </script>
 </head>
-<body>
+<body data-mode="editor">
+  <!-- 업로드 전 메인화면 눈 내리는 배경 캔버스 -->
+  <canvas id="snow-canvas" class="snow-canvas" aria-hidden="true"></canvas>
+
   <header class="topbar">
-    <img class="mark" src="assets/kmou-mark.png" alt="국립한국해양대학교 마크">
-    <h1 class="site-name">누구나 사용할 수 있는 GIF 생성기</h1>
+    <div class="brand-wrap">
+      <img class="mark" src="assets/kmou-mark.png" alt="국립한국해양대학교 마크">
+      <div class="brand-titles">
+        <span class="winter-badge">🎄 Winter Holiday Edition ❄️</span>
+        <h1 class="site-name">현민‘s 스마트 GIF 스튜디오</h1>
+      </div>
+    </div>
+
+    <nav class="mode-tabs" aria-label="기능 모드 전환">
+      <button id="tab-editor" class="mode-tab is-active" type="button" aria-selected="true">
+        <span class="tab-ornament" aria-hidden="true">🎄</span>
+        <span>초 고성능 GIF 편집기</span>
+      </button>
+      <button id="tab-generator" class="mode-tab" type="button" aria-selected="false">
+        <span class="tab-ornament" aria-hidden="true">🎬</span>
+        <span>스마트 GIF 생성기</span>
+      </button>
+    </nav>
   </header>
 
   <main>
-    <section class="hero" aria-labelledby="hero-title">
-      <p class="fps-pill">1초당 30프레임을 잘라 GIF로 저장</p>
-      <h2 id="hero-title">Video를 gif로 변환</h2>
-      <p class="sublead">동영상을 애니로</p>
-
-      <label id="picker" class="picker" for="file-input">
-        <span class="sprocket" aria-hidden="true"></span>
-        <span class="picker-body">
-          <span class="picker-icon" aria-hidden="true">
-            <svg viewBox="0 0 48 48" width="46" height="46">
-              <rect x="6" y="10" width="36" height="28" rx="4" fill="none" stroke="currentColor" stroke-width="2.4"/>
-              <path d="M20 18.5v11l10-5.5-10-5.5z" fill="currentColor"/>
-            </svg>
-          </span>
-          <span class="picker-title">동영상 파일 선택</span>
-          <span class="picker-hint">누르면 폴더가 열립니다. 파일은 한 번에 하나만 고를 수 있고, 이 칸으로 끌어다 놓아도 됩니다.</span>
-        </span>
-        <span class="sprocket" aria-hidden="true"></span>
-      </label>
-      <input id="file-input" type="file">
-      <p id="engine" class="engine" role="status">변환 엔진을 준비하고 있습니다.</p>
-      <p id="notice" class="notice" role="status" hidden></p>
-    </section>
-
-    <section id="format-error" class="banner" hidden role="alert">
-      <h3>이 파일은 GIF로 변환할 수 없습니다</h3>
-      <p id="format-error-detail"></p>
-      <p>아래 아이콘의 동영상 형식 중에서 다시 선택해 주세요. 고른 파일은 가로·세로 크기를 바꾼 뒤 30FPS GIF로 저장할 수 있습니다.</p>
-    </section>
-
-    <section class="formats" aria-labelledby="format-title">
-      <h3 id="format-title">GIF로 바꿀 수 있는 동영상 형식</h3>
-      <p class="formats-lead">컴퓨터에서 흔히 쓰는 영상 형식입니다. 모두 크기를 조정한 뒤 변환할 수 있습니다.</p>
-      <ul id="format-list" class="format-list"></ul>
-    </section>
-
-    <section id="workspace" class="workspace" hidden>
-      <h3>업로드한 파일</h3>
-      <div class="file-layout">
-        <div class="preview-wrap">
-          <video id="video-preview" controls playsinline></video>
-          <p id="preview-fallback" class="preview-fallback" hidden>이 형식은 화면에서 미리 재생되지 않습니다. 정보 확인 후 GIF로 변환할 수 있습니다.</p>
+    <!-- =========================================================
+         1. 현민‘s 초 고성능 GIF 편집기 섹션
+    ========================================================== -->
+    <div id="view-editor" class="mode-view">
+      <section class="hero editor-hero" aria-labelledby="editor-hero-title">
+        <div class="holiday-garland" aria-hidden="true">
+          <span>❄️</span><span>🎄</span><span>✨</span><span>🦌</span><span>✨</span><span>🎄</span><span>❄️</span>
         </div>
-        <dl id="file-info" class="file-info"></dl>
-      </div>
+        <h2 id="editor-hero-title">현민‘s 초 고성능 GIF 편집기</h2>
+        <p class="sublead">GIF 파일을 내맘대로 자유롭게</p>
 
-      <form id="settings" class="settings">
-        <h3>크기와 구간</h3>
-        <p class="settings-lead">선택한 구간을 1초당 30프레임으로 잘라 GIF로 만듭니다. 시작과 끝은 영상 길이 안에서 원하는 대로 바꿀 수 있습니다.</p>
-
-        <div class="control">
-          <label for="width">가로 크기 <strong id="width-label">480px</strong></label>
-          <input id="width" type="range" min="160" max="960" step="2" value="480">
-        </div>
-
-        <label class="check">
-          <input id="lock-ratio" type="checkbox" checked>
-          세로 크기를 원본 비율에 맞춥니다
-        </label>
-
-        <div class="control">
-          <label for="height">세로 크기 <strong id="height-label">-</strong></label>
-          <input id="height" type="range" min="2" max="960" step="2" value="270" disabled>
-        </div>
-
-        <p id="size-readout" class="size-readout">출력 크기 480 × 270</p>
-
-        <div class="clip-grid">
-          <div class="control">
-            <label for="start">시작 <strong id="start-label">0.0초</strong></label>
-            <input id="start" type="range" min="0" max="600" step="0.1" value="0">
-            <input id="start-num" class="text-field" type="number" min="0" max="600" step="0.1" value="0" aria-label="시작 초">
-          </div>
-          <div class="control">
-            <label for="end">끝 <strong id="end-label">8.0초</strong></label>
-            <input id="end" type="range" min="0.2" max="600" step="0.1" value="8">
-            <input id="end-num" class="text-field" type="number" min="0.2" max="600" step="0.1" value="8" aria-label="끝 초">
-          </div>
-        </div>
-        <p id="frame-readout" class="size-readout">선택 길이 8.0초 · 약 240프레임 · 30FPS</p>
-        <p id="frame-warning" class="frame-warning" hidden>구간이 깁니다. 목표 용량을 정하거나 끝을 앞당기면 더 수월합니다.</p>
-
-        <div class="control">
-          <label for="target-kb">목표 용량 <strong id="target-label">제한 없음</strong></label>
-          <input id="target-kb" class="text-field" type="number" min="0" step="1" placeholder="KB, 예: 500">
-          <p class="field-hint">숫자를 넣으면 그 용량에 맞게 화질, 크기, 프레임 수를 자동으로 낮춥니다. 비우면 30FPS 화질을 유지합니다.</p>
-        </div>
-
-        <div class="control">
-          <label for="caption">GIF 글자</label>
-          <input id="caption" class="text-field" type="text" maxlength="80" placeholder="넣을 글자를 입력하세요">
-        </div>
-        <div class="clip-grid">
-          <div class="control">
-            <label for="caption-place">글자 위치</label>
-            <select id="caption-place" class="text-field">
-              <option value="bottom">아래</option>
-              <option value="center">가운데</option>
-              <option value="top">위</option>
-            </select>
-          </div>
-          <div class="control">
-            <label for="caption-color">글자 색</label>
-            <input id="caption-color" type="color" value="#ffffff">
-          </div>
-        </div>
-        <label class="check">
-          <input id="caption-type" type="checkbox" checked>
-          글자가 타이핑되듯 나타납니다
-        </label>
-
-        <button id="convert" class="convert" type="submit">30FPS GIF로 변환</button>
-        <div id="progress-wrap" class="progress-wrap" hidden>
-          <div class="progress-row">
-            <div class="progress-main">
-              <div id="progress-track" class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="변환 진행도">
-                <div id="progress-bar" class="progress-bar"></div>
+        <!-- 업로드 전 드롭존 & 파일 선택 영역 (업로드 완료 시 숨김) -->
+        <div id="editor-upload-area" class="upload-area">
+          <div id="editor-dropzone" class="tree-dropzone" role="region" aria-label="GIF 파일 드롭 영역">
+            <div class="tree-star-badge" aria-hidden="true">⭐</div>
+            <div class="tree-lights-trim" aria-hidden="true"></div>
+            <div class="tree-dropzone-inner">
+              <div class="tree-graphic" aria-hidden="true">
+                <svg viewBox="0 0 84 84" width="68" height="68">
+                  <polygon points="42,6 45.5,13.5 53.8,14.5 47.6,20.2 49.3,28.4 42,24.3 34.7,28.4 36.4,20.2 30.2,14.5 38.5,13.5" fill="#ffd54f" stroke="#f59e0b" stroke-width="1.5"/>
+                  <polygon points="42,20 18,46 66,46" fill="#1e7b44"/>
+                  <polygon points="42,33 13,61 71,61" fill="#166534"/>
+                  <polygon points="42,46 8,74 76,74" fill="#14532d"/>
+                  <rect x="36" y="74" width="12" height="8" rx="2" fill="#78350f"/>
+                  <circle cx="34" cy="41" r="3.2" fill="#ef4444"/>
+                  <circle cx="49" cy="43" r="3" fill="#fde047"/>
+                  <circle cx="27" cy="56" r="3.4" fill="#fde047"/>
+                  <circle cx="43" cy="54" r="3.4" fill="#ef4444"/>
+                  <circle cx="56" cy="58" r="3" fill="#38bdf8"/>
+                  <circle cx="22" cy="69" r="3.5" fill="#ef4444"/>
+                  <circle cx="38" cy="68" r="3.2" fill="#fde047"/>
+                  <circle cx="53" cy="69" r="3.5" fill="#ef4444"/>
+                  <circle cx="64" cy="70" r="2.8" fill="#fde047"/>
+                </svg>
               </div>
-              <p id="progress-text">프레임을 자르는 중입니다.</p>
-              <p id="done-name" class="done-name" hidden></p>
+              <p class="dropzone-title">여기에 GIF 파일을 끌어다 놓으세요</p>
+              <p class="dropzone-hint">한 번에 한 개의 GIF 파일만 선택하여 자유롭게 편집할 수 있습니다.</p>
+              <button id="editor-select-btn" class="tree-btn select-file-btn" type="button">
+                <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+                  <path d="M4 6a2 2 0 0 1 2-2h4.5l2 2H18a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+                  <path d="M12 10v6m-3-3h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+                <span>파일 선택</span>
+              </button>
+              <input id="editor-file-input" type="file" aria-label="편집할 GIF 파일 선택">
             </div>
-            <button id="download" class="download" type="button" disabled>다운로드</button>
+            <div class="tree-ribbon-bottom" aria-hidden="true"></div>
           </div>
-          <div id="thumbs" class="thumbs" aria-label="생성된 GIF 프레임 미리보기"></div>
-        </div>
-      </form>
-    </section>
 
-    <section id="result" class="result" hidden>
-      <h3>만들어진 GIF</h3>
-      <img id="gif-preview" alt="변환된 GIF 미리보기">
-      <dl id="gif-info" class="file-info"></dl>
-    </section>
+          <!-- GIF가 아닌 파일 업로드 시 금빛 전구 연말 감성 안내 -->
+          <div id="editor-non-gif-alert" class="bulb-alert" hidden role="alert">
+            <div class="golden-bulbs" aria-hidden="true">
+              <svg viewBox="0 0 520 54" preserveAspectRatio="none" class="bulb-wire-svg">
+                <path d="M0,10 Q65,28 130,12 T260,14 T390,12 T520,14" fill="none" stroke="#6b4f1d" stroke-width="2.2"/>
+                <g class="bulb-group b1" transform="translate(46, 17)">
+                  <rect x="-4" y="-3" width="8" height="6" rx="1.5" fill="#785822"/>
+                  <ellipse cx="0" cy="11" rx="8" ry="11" fill="#ffd54f"/>
+                </g>
+                <g class="bulb-group b2" transform="translate(130, 12)">
+                  <rect x="-4" y="-3" width="8" height="6" rx="1.5" fill="#785822"/>
+                  <ellipse cx="0" cy="11" rx="8" ry="11" fill="#ffecb3"/>
+                </g>
+                <g class="bulb-group b3" transform="translate(215, 18)">
+                  <rect x="-4" y="-3" width="8" height="6" rx="1.5" fill="#785822"/>
+                  <ellipse cx="0" cy="11" rx="8" ry="11" fill="#ffc107"/>
+                </g>
+                <g class="bulb-group b4" transform="translate(305, 13)">
+                  <rect x="-4" y="-3" width="8" height="6" rx="1.5" fill="#785822"/>
+                  <ellipse cx="0" cy="11" rx="8" ry="11" fill="#ffe082"/>
+                </g>
+                <g class="bulb-group b5" transform="translate(390, 12)">
+                  <rect x="-4" y="-3" width="8" height="6" rx="1.5" fill="#785822"/>
+                  <ellipse cx="0" cy="11" rx="8" ry="11" fill="#ffd54f"/>
+                </g>
+                <g class="bulb-group b6" transform="translate(474, 17)">
+                  <rect x="-4" y="-3" width="8" height="6" rx="1.5" fill="#785822"/>
+                  <ellipse cx="0" cy="11" rx="8" ry="11" fill="#ffca28"/>
+                </g>
+              </svg>
+            </div>
+            <div class="bulb-alert-body">
+              <p class="bulb-alert-title">💡 GIF만 편집할 수 있어요</p>
+              <p id="editor-non-gif-detail" class="bulb-alert-desc">선택하신 파일은 GIF 형식이 아닙니다. 반짝이는 연말 감성 가득한 `.gif` 애니메이션 파일을 다시 골라주세요!</p>
+              <button id="editor-retry-btn" class="bulb-retry-btn" type="button">다시 GIF 파일 고르기</button>
+            </div>
+          </div>
+        </div>
+
+        <p id="editor-engine-status" class="engine" role="status">고성능 GIF 편집 엔진을 준비하고 있습니다.</p>
+        <p id="editor-notice" class="notice" role="status" hidden></p>
+      </section>
+
+      <!-- 업로드 완료 후 편집 워크스페이스 (좌: 미리보기 & 정보 / 우: 편집 패널) -->
+      <section id="editor-workspace" class="editor-workspace" hidden aria-label="GIF 편집 작업 공간">
+        <div class="editor-toolbar-top">
+          <div class="editor-session-badge">
+            <span aria-hidden="true">🎁</span>
+            <span id="editor-active-filename">원본 파일</span>
+          </div>
+          <div class="editor-toolbar-actions">
+            <button id="toggle-compare-btn" class="ghost-holiday-btn" type="button" hidden>
+              🔍 원본 ↔ 결과 비교 보기
+            </button>
+            <button id="editor-reset-edits-btn" class="ghost-holiday-btn" type="button" hidden title="적용된 편집을 초기화하고 원본 GIF 상태로 되돌립니다">
+              ↩ 원본 상태로 초기화
+            </button>
+            <button id="editor-change-file-btn" class="ghost-holiday-btn" type="button">
+              📂 다른 GIF 불러오기
+            </button>
+          </div>
+        </div>
+
+        <!-- 4. 업로드 직후 / 편집 직후 한 줄 요약 배너 -->
+        <div id="editor-summary-banner" class="summary-oneline-banner" role="status" aria-live="polite">
+          <span class="summary-sparkle" aria-hidden="true">✨</span>
+          <p id="editor-summary-text" class="summary-oneline-text">이 GIF는 총 0장, 0초, 초당 0프레임입니다.</p>
+          <span id="editor-summary-tag" class="summary-stage-tag">업로드 완료</span>
+        </div>
+
+        <!-- 다운로드 완료 후 클립보드 복사 안내 바 -->
+        <div id="post-download-bar" class="post-download-bar" hidden role="status">
+          <span id="post-download-msg">✅ 다운로드가 완료되었습니다! 결과물을 클립보드에 바로 복사할 수 있어요.</span>
+          <button id="post-download-copy-btn" class="tree-btn copy-clip-btn" type="button">
+            📋 클립보드에 복사
+          </button>
+        </div>
+
+        <!-- 1. 원본 -> 결과 나란히 비교 패널 -->
+        <section id="compare-panel" class="compare-panel gif-card" hidden aria-label="원본 및 편집 결과 나란히 비교">
+          <header class="gif-card-header compare-header">
+            <div class="compare-header-left">
+              <span aria-hidden="true">🔍</span>
+              <h3 class="gif-card-title">원본 → 결과 나란히 비교</h3>
+              <span id="compare-delta-pill" class="card-pill result-pill">실시간 비교</span>
+            </div>
+            <div class="compare-header-actions">
+              <button id="compare-sync-btn" class="ghost-holiday-btn" type="button" title="원본과 결과를 첫 프레임부터 동시에 다시 재생합니다">
+                🔄 첫 프레임 동시 재생
+              </button>
+              <button id="compare-copy-btn" class="ghost-holiday-btn" type="button">
+                📋 결과 클립보드에 복사
+              </button>
+              <button id="compare-hide-btn" class="modal-close-btn" type="button" title="비교 창 접기" aria-label="비교 창 접기">✕</button>
+            </div>
+          </header>
+          <div class="compare-grid">
+            <div class="compare-col">
+              <div class="compare-col-label">
+                <span class="card-pill">원본 (Original)</span>
+                <span id="compare-orig-meta" class="compare-meta-inline"></span>
+              </div>
+              <div class="gif-stage compare-stage">
+                <img id="compare-orig-img" alt="비교용 원본 GIF">
+              </div>
+            </div>
+
+            <div class="compare-arrow-col" aria-hidden="true">
+              <div class="compare-arrow-circle">➔</div>
+              <span id="compare-step-label" class="compare-step-label">편집 적용</span>
+            </div>
+
+            <div class="compare-col">
+              <div class="compare-col-label">
+                <span id="compare-res-badge" class="card-pill result-pill">결과 (Result)</span>
+                <span id="compare-res-meta" class="compare-meta-inline"></span>
+              </div>
+              <div id="compare-res-stage" class="gif-stage compare-stage">
+                <img id="compare-res-img" alt="비교용 편집 결과">
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <div class="editor-split">
+          <!-- 왼쪽 컬럼: 원본 GIF 패널 + 결과 패널들 -->
+          <div id="editor-left" class="editor-left">
+            <article id="orig-panel" class="gif-card">
+              <header class="gif-card-header">
+                <button id="orig-toggle-btn" class="collapse-toggle" type="button" aria-expanded="true" aria-controls="orig-panel-body" title="접기/펼치기">
+                  <svg class="chevron-icon" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
+                    <path d="M5 7.5L10 12.5L15 7.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </button>
+                <h3 class="gif-card-title">원본 GIF</h3>
+                <span class="card-pill">Original</span>
+              </header>
+              <div id="orig-panel-body" class="gif-card-body">
+                <div class="gif-stage">
+                  <img id="orig-gif-preview" alt="업로드된 원본 GIF 미리보기">
+                </div>
+                <dl id="orig-gif-info" class="file-info compact-info"></dl>
+              </div>
+            </article>
+
+            <!-- Proceed 후 생성되는 결과 패널 영역 (Resized GIF 등) -->
+            <div id="editor-results-stack" class="results-stack"></div>
+          </div>
+
+          <!-- 오른쪽 컬럼: 편집 패널 -->
+          <aside id="editor-right" class="editor-right gif-card">
+            <!-- 1) 9개 기능 선택 그리드 화면 -->
+            <div id="tool-selector-view" class="tool-selector-view">
+              <div class="panel-head">
+                <h3>🎄 편집 도구 선택</h3>
+                <p id="edit-source-indicator" class="panel-sub">원하는 기능을 선택하면 전용 편집 화면이 열립니다.</p>
+              </div>
+
+              <div id="tool-grid" class="tool-grid" role="list">
+                <!-- JS에서 9개 전용 아이콘 버튼 렌더링 (또는 정적 마크업) -->
+                <button class="tool-tile" type="button" data-tool="resize">
+                  <span class="tool-icon" aria-hidden="true">
+                    <svg viewBox="0 0 40 40" width="36" height="36">
+                      <rect x="6" y="8" width="18" height="15" rx="2.5" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="3 2"/>
+                      <rect x="6" y="8" width="28" height="24" rx="3.5" fill="none" stroke="currentColor" stroke-width="2.4"/>
+                      <path d="M23 21l9 8m0-6v6h-6" fill="none" stroke="#d42426" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                  </span>
+                  <span class="tool-name">Resize</span>
+                  <span class="tool-kor">크기 조절</span>
+                </button>
+
+                <button class="tool-tile" type="button" data-tool="crop">
+                  <span class="tool-icon" aria-hidden="true">
+                    <svg viewBox="0 0 40 40" width="36" height="36">
+                      <path d="M12 5v23h23" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                      <path d="M5 12h23v23" fill="none" stroke="#d42426" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                      <rect x="15" y="15" width="10" height="10" fill="rgba(22,101,52,0.14)"/>
+                    </svg>
+                  </span>
+                  <span class="tool-name">Crop</span>
+                  <span class="tool-kor">비율 자르기</span>
+                </button>
+
+                <button class="tool-tile" type="button" data-tool="downsizing">
+                  <span class="tool-icon" aria-hidden="true">
+                    <svg viewBox="0 0 40 40" width="36" height="36">
+                      <rect x="11" y="12" width="18" height="16" rx="3" fill="none" stroke="currentColor" stroke-width="2.3"/>
+                      <path d="M6 7l6 6m0-5v5H7M34 7l-6 6m0-5v5h5M6 33l6-6m0 5v-5H7M34 33l-6-6m0 5v-5h5" fill="none" stroke="#d42426" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                  </span>
+                  <span class="tool-name">Downsizing</span>
+                  <span class="tool-kor">용량 줄이기</span>
+                </button>
+
+                <button class="tool-tile" type="button" data-tool="convert">
+                  <span class="tool-icon" aria-hidden="true">
+                    <svg viewBox="0 0 40 40" width="36" height="36">
+                      <rect x="4" y="7" width="16" height="13" rx="2.5" fill="none" stroke="currentColor" stroke-width="2.2"/>
+                      <text x="12" y="16" text-anchor="middle" font-size="6.5" font-weight="800" fill="currentColor">GIF</text>
+                      <rect x="20" y="20" width="16" height="13" rx="2.5" fill="none" stroke="#d42426" stroke-width="2.2"/>
+                      <text x="28" y="29" text-anchor="middle" font-size="6" font-weight="800" fill="#d42426">MP4</text>
+                      <path d="M23 9h6a3 3 0 0 1 3 3v4m-3-2l3 2 3-2M17 31h-6a3 3 0 0 1-3-3v-4m-3 2l3-2 3 2" fill="none" stroke="#166534" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                  </span>
+                  <span class="tool-name">Format Convert</span>
+                  <span class="tool-kor">MP4 · JPG 변환</span>
+                </button>
+
+                <button class="tool-tile" type="button" data-tool="rotate">
+                  <span class="tool-icon" aria-hidden="true">
+                    <svg viewBox="0 0 40 40" width="36" height="36">
+                      <path d="M29 14A11 11 0 1 0 31 23" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+                      <path d="M29 7v7h-7" fill="none" stroke="#d42426" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+                      <rect x="15" y="16" width="10" height="10" rx="2" fill="none" stroke="#166534" stroke-width="2"/>
+                    </svg>
+                  </span>
+                  <span class="tool-name">Rotate</span>
+                  <span class="tool-kor">회전 · 뒤집기</span>
+                </button>
+
+                <button class="tool-tile" type="button" data-tool="optimize">
+                  <span class="tool-icon" aria-hidden="true">
+                    <svg viewBox="0 0 40 40" width="36" height="36">
+                      <polygon points="20,6 32,16 20,34 8,16" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linejoin="round"/>
+                      <path d="M8 16h24M20 6l-5 10 5 18 5-18-5-10z" fill="none" stroke="currentColor" stroke-width="1.6"/>
+                      <path d="M32 6l1.2 2.8L36 10l-2.8 1.2L32 14l-1.2-2.8L28 10l2.8-1.2z" fill="#d42426"/>
+                    </svg>
+                  </span>
+                  <span class="tool-name">Optimize</span>
+                  <span class="tool-kor">화질 유지 최적화</span>
+                </button>
+
+                <button class="tool-tile" type="button" data-tool="reverse">
+                  <span class="tool-icon" aria-hidden="true">
+                    <svg viewBox="0 0 40 40" width="36" height="36">
+                      <polygon points="20,13 10,20 20,27" fill="currentColor"/>
+                      <polygon points="30,13 20,20 30,27" fill="#d42426"/>
+                      <path d="M8 10a15 15 0 0 1 24 0M32 30a15 15 0 0 1-24 0" fill="none" stroke="#166534" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                  </span>
+                  <span class="tool-name">Reverse</span>
+                  <span class="tool-kor">역재생</span>
+                </button>
+
+                <button class="tool-tile" type="button" data-tool="speed">
+                  <span class="tool-icon" aria-hidden="true">
+                    <svg viewBox="0 0 40 40" width="36" height="36">
+                      <path d="M7 27a13 13 0 1 1 26 0" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+                      <path d="M20 25l7-8" stroke="#d42426" stroke-width="2.8" stroke-linecap="round"/>
+                      <circle cx="20" cy="25" r="3" fill="#166534"/>
+                      <path d="M12 31h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                  </span>
+                  <span class="tool-name">Speed</span>
+                  <span class="tool-kor">재생 속도 조절</span>
+                </button>
+
+                <button class="tool-tile" type="button" data-tool="cut">
+                  <span class="tool-icon" aria-hidden="true">
+                    <svg viewBox="0 0 40 40" width="36" height="36">
+                      <circle cx="11" cy="13" r="4" fill="none" stroke="#d42426" stroke-width="2.2"/>
+                      <circle cx="11" cy="27" r="4" fill="none" stroke="#d42426" stroke-width="2.2"/>
+                      <path d="M14.5 15.2L29 26M14.5 24.8L29 14" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"/>
+                      <line x1="25" y1="8" x2="25" y2="32" stroke="#166534" stroke-width="2" stroke-dasharray="2.5 2.5"/>
+                    </svg>
+                  </span>
+                  <span class="tool-name">Cut</span>
+                  <span class="tool-kor">구간 잘라내기</span>
+                </button>
+              </div>
+
+              <!-- 마무리 저장 영역 -->
+              <div class="finish-save-box">
+                <div class="finish-save-text">
+                  <strong>🎁 편집 마무리 및 파일 저장</strong>
+                  <p id="finish-save-desc">원하는 편집을 마친 뒤 파일명과 저장 위치를 지정해 저장할 수 있습니다.</p>
+                </div>
+                <button id="open-save-modal-btn" class="tree-btn save-final-btn" type="button">
+                  <span>🎄 편집된 파일 저장</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- 2) 개별 기능 전용 옵션 화면 -->
+            <div id="tool-detail-view" class="tool-detail-view" hidden>
+              <div id="tool-detail-header" class="tool-detail-header"></div>
+              <div id="tool-detail-body" class="tool-detail-body"></div>
+
+              <!-- 실시간 프레임별 내부 처리 모니터 + 루돌프 로딩 프로그레스 바 -->
+              <div id="editor-progress-wrap" class="rudolph-progress-wrap" hidden>
+                <div class="live-process-inspector">
+                  <div class="live-frame-viewport">
+                    <img id="editor-live-frame-img" alt="현재 처리 중인 GIF 프레임">
+                    <span id="editor-live-frame-badge" class="live-frame-badge">#1</span>
+                  </div>
+                  <div class="live-process-details">
+                    <div class="live-counter-row">
+                      <strong id="editor-frame-counter" class="live-frame-counter">0/0 프레임 처리 중</strong>
+                      <span id="editor-progress-pct" class="rudolph-pct">0%</span>
+                    </div>
+                    <p id="editor-internal-stage" class="live-internal-stage">내부 작업 준비 중...</p>
+                    <ol id="editor-pipeline-steps" class="pipeline-steps" aria-label="내부 처리 단계">
+                      <li data-stage="decode" class="is-active">1. 프레임 분리</li>
+                      <li data-stage="filter">2. 픽셀·필터 연산</li>
+                      <li data-stage="palette">3. 팔레트·디더링</li>
+                      <li data-stage="encode">4. 스트림 패키징</li>
+                    </ol>
+                    <code id="editor-engine-telemetry" class="engine-telemetry">[Engine] WASM 파이프라인 대기 중...</code>
+                  </div>
+                </div>
+
+                <div class="rudolph-track-outer">
+                  <div id="editor-progress-track" class="progress-track holiday-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="편집 진행도">
+                    <div id="editor-progress-bar" class="progress-bar holiday-bar"></div>
+                  </div>
+                  <div id="editor-rudolph" class="rudolph-runner" style="left: 0%;" aria-hidden="true">
+                    <svg viewBox="0 0 56 44" width="44" height="35">
+                      <!-- 뿔 -->
+                      <path d="M22 12L17 3M19 7l-4 1M22 9l3-4" stroke="#6d4c41" stroke-width="2.4" stroke-linecap="round"/>
+                      <path d="M30 12L35 3M33 7l4 1M30 9l-3-4" stroke="#6d4c41" stroke-width="2.4" stroke-linecap="round"/>
+                      <!-- 몸통 & 다리 -->
+                      <ellipse cx="22" cy="28" rx="12" ry="7.5" fill="#8d5524"/>
+                      <path d="M13 33l-4 7M18 34l-1 7M26 34l3 7M31 32l6 6" stroke="#6d4c41" stroke-width="2.6" stroke-linecap="round"/>
+                      <!-- 빨간 목도리 -->
+                      <path d="M28 21c2 4 2 8 0 11" stroke="#dc2626" stroke-width="4" stroke-linecap="round"/>
+                      <path d="M26 27l-6 4" stroke="#16a34a" stroke-width="3" stroke-linecap="round"/>
+                      <!-- 머리 -->
+                      <ellipse cx="35" cy="19" rx="9" ry="7" fill="#a1622f"/>
+                      <ellipse cx="28" cy="14" rx="3.5" ry="2" transform="rotate(-25 28 14)" fill="#8d5524"/>
+                      <circle cx="37" cy="17" r="1.6" fill="#1f2937"/>
+                      <circle cx="37.5" cy="16.5" r="0.6" fill="#fff"/>
+                      <!-- 반짝이는 빨간 코 -->
+                      <circle class="rudolph-nose-glow" cx="45" cy="19" r="5.5" fill="rgba(239,68,68,0.38)"/>
+                      <circle cx="45" cy="19" r="3.4" fill="#ef4444"/>
+                      <circle cx="44" cy="18" r="1" fill="#fecaca"/>
+                    </svg>
+                  </div>
+                </div>
+                <div class="rudolph-status-row">
+                  <p id="editor-progress-text" class="rudolph-status-text">루돌프가 열심히 GIF를 변환하고 있어요...</p>
+                </div>
+              </div>
+
+              <p id="tool-inline-error" class="tool-inline-error" hidden role="alert"></p>
+
+              <!-- Return / Proceed 액션 버튼 -->
+              <div class="tool-action-bar">
+                <button id="tool-return-btn" class="return-btn" type="button">
+                  ← Return
+                </button>
+                <button id="tool-proceed-btn" class="tree-btn proceed-btn" type="button">
+                  <span>🎄 Proceed (변경사항 적용)</span>
+                </button>
+              </div>
+
+              <!-- 개별 화면에서도 바로 마무리 저장 가능하도록 단축 바 제공 -->
+              <div id="tool-quick-finish" class="tool-quick-finish" hidden>
+                <span>✨ 변경사항이 적용되었습니다! 다른 기능도 이어서 쓰거나 바로 저장할 수 있어요.</span>
+                <button id="tool-save-btn" class="tree-btn mini-save-btn" type="button">🎄 저장</button>
+              </div>
+            </div>
+
+            <!-- 3. 오른쪽 패널 편집 기록 (중간 단계 복귀 타임라인) -->
+            <div id="edit-history-box" class="edit-history-box">
+              <div class="edit-history-head">
+                <h4>🕒 편집 기록 (클릭 시 해당 단계로 복귀)</h4>
+                <span id="edit-history-count" class="history-count-badge">원본 상태</span>
+              </div>
+              <ol id="edit-history-list" class="edit-history-list" aria-label="편집 단계 기록"></ol>
+            </div>
+          </aside>
+        </div>
+      </section>
+    </div>
+
+    <!-- =========================================================
+         2. 기존 스마트 GIF 생성기 섹션 (크리스마스 테마 통합 + 바로 편집 연동)
+    ========================================================== -->
+    <div id="view-generator" class="mode-view" hidden>
+      <section class="hero" aria-labelledby="hero-title">
+        <p class="fps-pill">❄️ 1초당 30프레임을 잘라 고화질 GIF로 저장 🎄</p>
+        <h2 id="hero-title">Video를 gif로 변환</h2>
+        <p class="sublead">동영상을 애니로</p>
+
+        <div id="generator-upload-wrap" class="upload-area">
+          <label id="picker" class="picker tree-dropzone" for="file-input">
+            <span class="tree-star-badge" aria-hidden="true">⭐</span>
+            <span class="tree-lights-trim" aria-hidden="true"></span>
+            <span class="picker-body">
+              <span class="picker-icon" aria-hidden="true">
+                <svg viewBox="0 0 64 64" width="56" height="56">
+                  <polygon points="32,6 12,30 52,30" fill="#1e7b44"/>
+                  <polygon points="32,18 8,46 56,46" fill="#15803d"/>
+                  <rect x="14" y="24" width="36" height="26" rx="5" fill="#ffffff" stroke="#b91c1c" stroke-width="2.6"/>
+                  <path d="M27 31v12l11-6-11-6z" fill="#dc2626"/>
+                </svg>
+              </span>
+              <span class="picker-title">🎄 동영상 파일 선택</span>
+              <span class="picker-hint">누르면 폴더가 열립니다. 파일은 한 번에 하나만 고를 수 있고, 이 칸으로 끌어다 놓아도 됩니다.</span>
+              <span class="tree-btn fake-select-pill">파일 선택하기</span>
+            </span>
+            <span class="tree-ribbon-bottom" aria-hidden="true"></span>
+          </label>
+          <input id="file-input" type="file">
+        </div>
+
+        <p id="engine" class="engine" role="status">변환 엔진을 준비하고 있습니다.</p>
+        <p id="notice" class="notice" role="status" hidden></p>
+      </section>
+
+      <section id="format-error" class="bulb-alert banner" hidden role="alert">
+        <div class="golden-bulbs" aria-hidden="true">
+          <svg viewBox="0 0 520 54" preserveAspectRatio="none" class="bulb-wire-svg">
+            <path d="M0,10 Q65,28 130,12 T260,14 T390,12 T520,14" fill="none" stroke="#6b4f1d" stroke-width="2.2"/>
+            <g class="bulb-group b1" transform="translate(55, 16)"><rect x="-4" y="-3" width="8" height="6" rx="1.5" fill="#785822"/><ellipse cx="0" cy="11" rx="8" ry="11" fill="#ffd54f"/></g>
+            <g class="bulb-group b2" transform="translate(160, 13)"><rect x="-4" y="-3" width="8" height="6" rx="1.5" fill="#785822"/><ellipse cx="0" cy="11" rx="8" ry="11" fill="#ffe082"/></g>
+            <g class="bulb-group b3" transform="translate(260, 15)"><rect x="-4" y="-3" width="8" height="6" rx="1.5" fill="#785822"/><ellipse cx="0" cy="11" rx="8" ry="11" fill="#ffc107"/></g>
+            <g class="bulb-group b4" transform="translate(360, 13)"><rect x="-4" y="-3" width="8" height="6" rx="1.5" fill="#785822"/><ellipse cx="0" cy="11" rx="8" ry="11" fill="#ffd54f"/></g>
+            <g class="bulb-group b5" transform="translate(465, 16)"><rect x="-4" y="-3" width="8" height="6" rx="1.5" fill="#785822"/><ellipse cx="0" cy="11" rx="8" ry="11" fill="#ffca28"/></g>
+          </svg>
+        </div>
+        <div class="bulb-alert-body">
+          <h3>💡 이 파일은 GIF로 변환할 수 없습니다</h3>
+          <p id="format-error-detail"></p>
+          <p>아래 아이콘의 동영상 형식 중에서 다시 선택해 주세요. 이미 만들어진 GIF 파일이라면 상단의 <strong>초 고성능 GIF 편집기</strong> 탭에서 바로 편집할 수 있습니다!</p>
+        </div>
+      </section>
+
+      <section id="workspace" class="workspace gif-card" hidden>
+        <div class="workspace-head-row">
+          <h3>🎬 업로드한 동영상</h3>
+        </div>
+        <div class="file-layout">
+          <div class="preview-wrap">
+            <video id="video-preview" controls playsinline></video>
+            <p id="preview-fallback" class="preview-fallback" hidden>이 형식은 화면에서 미리 재생되지 않습니다. 정보 확인 후 GIF로 변환할 수 있습니다.</p>
+          </div>
+          <dl id="file-info" class="file-info"></dl>
+        </div>
+
+        <form id="settings" class="settings">
+          <h3>🎄 크기와 구간 설정</h3>
+          <p class="settings-lead">선택한 구간을 1초당 30프레임으로 잘라 GIF로 만듭니다. 시작과 끝은 영상 길이 안에서 원하는 대로 바꿀 수 있습니다.</p>
+
+          <div class="control">
+            <label for="width">가로 크기 <strong id="width-label">480px</strong></label>
+            <input id="width" type="range" min="160" max="960" step="2" value="480">
+          </div>
+
+          <label class="check">
+            <input id="lock-ratio" type="checkbox" checked>
+            세로 크기를 원본 비율에 맞춥니다
+          </label>
+
+          <div class="control">
+            <label for="height">세로 크기 <strong id="height-label">-</strong></label>
+            <input id="height" type="range" min="2" max="960" step="2" value="270" disabled>
+          </div>
+
+          <p id="size-readout" class="size-readout">출력 크기 480 × 270</p>
+
+          <div class="clip-grid">
+            <div class="control">
+              <label for="start">시작 <strong id="start-label">0.0초</strong></label>
+              <input id="start" type="range" min="0" max="600" step="0.1" value="0">
+              <input id="start-num" class="text-field" type="number" min="0" max="600" step="0.1" value="0" aria-label="시작 초">
+            </div>
+            <div class="control">
+              <label for="end">끝 <strong id="end-label">8.0초</strong></label>
+              <input id="end" type="range" min="0.2" max="600" step="0.1" value="8">
+              <input id="end-num" class="text-field" type="number" min="0.2" max="600" step="0.1" value="8" aria-label="끝 초">
+            </div>
+          </div>
+          <p id="frame-readout" class="size-readout">선택 길이 8.0초 · 약 240프레임 · 30FPS</p>
+          <p id="frame-warning" class="frame-warning" hidden>구간이 깁니다. 목표 용량을 정하거나 끝을 앞당기면 더 수월합니다.</p>
+
+          <div class="control">
+            <label for="target-kb">목표 용량 <strong id="target-label">제한 없음</strong></label>
+            <input id="target-kb" class="text-field" type="number" min="0" step="1" placeholder="KB, 예: 500">
+            <p class="field-hint">숫자를 넣으면 그 용량에 맞게 화질, 크기, 프레임 수를 자동으로 낮춥니다. 비우면 30FPS 화질을 유지합니다.</p>
+          </div>
+
+          <div class="control">
+            <label for="caption">GIF 글자</label>
+            <input id="caption" class="text-field" type="text" maxlength="80" placeholder="넣을 글자를 입력하세요">
+          </div>
+          <div class="clip-grid">
+            <div class="control">
+              <label for="caption-place">글자 위치</label>
+              <select id="caption-place" class="text-field">
+                <option value="bottom">아래</option>
+                <option value="center">가운데</option>
+                <option value="top">위</option>
+              </select>
+            </div>
+            <div class="control">
+              <label for="caption-color">글자 색</label>
+              <input id="caption-color" type="color" value="#ffffff">
+            </div>
+          </div>
+          <label class="check">
+            <input id="caption-type" type="checkbox" checked>
+            글자가 타이핑되듯 나타납니다
+          </label>
+
+          <button id="convert" class="tree-btn convert" type="submit">🎄 30FPS GIF로 변환</button>
+
+          <!-- 생성기에도 실시간 프레임 모니터 + 루돌프 로딩 바 적용 -->
+          <div id="progress-wrap" class="progress-wrap rudolph-progress-wrap" hidden>
+            <div id="gen-live-inspector" class="live-process-inspector" style="margin-bottom:12px;">
+              <div class="live-frame-viewport">
+                <img id="gen-live-frame-img" alt="추출 중인 동영상 프레임">
+                <span id="gen-live-frame-badge" class="live-frame-badge">#0</span>
+              </div>
+              <div class="live-process-details">
+                <div class="live-counter-row">
+                  <strong id="gen-frame-counter" class="live-frame-counter">0/0 프레임 처리 중</strong>
+                </div>
+                <p id="gen-internal-stage" class="live-internal-stage">동영상 스트림에서 30FPS 프레임을 추출할 준비를 하고 있습니다.</p>
+                <code id="gen-engine-telemetry" class="engine-telemetry">[FFmpeg WASM] 대기 중...</code>
+              </div>
+            </div>
+            <div class="progress-row">
+              <div class="progress-main">
+                <div class="rudolph-track-outer">
+                  <div id="progress-track" class="progress-track holiday-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="변환 진행도">
+                    <div id="progress-bar" class="progress-bar holiday-bar"></div>
+                  </div>
+                  <div id="generator-rudolph" class="rudolph-runner" style="left: 0%;" aria-hidden="true">
+                    <svg viewBox="0 0 56 44" width="44" height="35">
+                      <path d="M22 12L17 3M19 7l-4 1M22 9l3-4" stroke="#6d4c41" stroke-width="2.4" stroke-linecap="round"/>
+                      <path d="M30 12L35 3M33 7l4 1M30 9l-3-4" stroke="#6d4c41" stroke-width="2.4" stroke-linecap="round"/>
+                      <ellipse cx="22" cy="28" rx="12" ry="7.5" fill="#8d5524"/>
+                      <path d="M13 33l-4 7M18 34l-1 7M26 34l3 7M31 32l6 6" stroke="#6d4c41" stroke-width="2.6" stroke-linecap="round"/>
+                      <path d="M28 21c2 4 2 8 0 11" stroke="#dc2626" stroke-width="4" stroke-linecap="round"/>
+                      <path d="M26 27l-6 4" stroke="#16a34a" stroke-width="3" stroke-linecap="round"/>
+                      <ellipse cx="35" cy="19" rx="9" ry="7" fill="#a1622f"/>
+                      <ellipse cx="28" cy="14" rx="3.5" ry="2" transform="rotate(-25 28 14)" fill="#8d5524"/>
+                      <circle cx="37" cy="17" r="1.6" fill="#1f2937"/>
+                      <circle cx="37.5" cy="16.5" r="0.6" fill="#fff"/>
+                      <circle class="rudolph-nose-glow" cx="45" cy="19" r="5.5" fill="rgba(239,68,68,0.38)"/>
+                      <circle cx="45" cy="19" r="3.4" fill="#ef4444"/>
+                      <circle cx="44" cy="18" r="1" fill="#fecaca"/>
+                    </svg>
+                  </div>
+                </div>
+                <p id="progress-text">프레임을 자르는 중입니다.</p>
+                <p id="done-name" class="done-name" hidden></p>
+              </div>
+              <button id="download" class="tree-btn download" type="button" disabled>🎄 다운로드</button>
+            </div>
+            <div id="thumbs" class="thumbs" aria-label="생성된 GIF 프레임 미리보기"></div>
+          </div>
+        </form>
+      </section>
+
+      <section id="result" class="result gif-card" hidden>
+        <div class="result-header-row">
+          <h3>🎁 만들어진 GIF</h3>
+          <div class="result-actions-group">
+            <button id="copy-generated-gif" class="ghost-holiday-btn" type="button">
+              📋 클립보드에 복사
+            </button>
+            <button id="edit-generated-gif" class="tree-btn edit-bridge-btn" type="button">
+              ✨ 이 GIF 바로 편집하기
+            </button>
+          </div>
+        </div>
+        <p id="generator-oneline-summary" class="generator-oneline-summary"></p>
+        <div class="gif-stage">
+          <img id="gif-preview" alt="변환된 GIF 미리보기">
+        </div>
+        <dl id="gif-info" class="file-info"></dl>
+      </section>
+
+      <section class="formats" aria-labelledby="format-title">
+        <h3 id="format-title">❄️ GIF로 바꿀 수 있는 동영상 형식</h3>
+        <p class="formats-lead">컴퓨터에서 흔히 쓰는 영상 형식입니다. 모두 크기를 조정한 뒤 변환하고 바로 편집기로 보낼 수 있습니다.</p>
+        <ul id="format-list" class="format-list"></ul>
+      </section>
+    </div>
   </main>
+
+  <!-- =========================================================
+       마무리 저장 모달 (파일명 & 저장 위치 지정)
+  ========================================================== -->
+  <div id="save-modal-backdrop" class="modal-backdrop" hidden>
+    <div class="save-modal" role="dialog" aria-modal="true" aria-labelledby="save-modal-title">
+      <div class="modal-garland-bar" aria-hidden="true"></div>
+      <div class="save-modal-header">
+        <h3 id="save-modal-title">🎄 편집된 파일 저장하기</h3>
+        <button id="save-modal-close" class="modal-close-btn" type="button" aria-label="창 닫기">✕</button>
+      </div>
+      <div class="save-modal-body">
+        <p class="save-modal-lead">저장할 파일명과 폴더 위치를 확인해 주세요.</p>
+
+        <div class="control">
+          <label for="save-filename-input">저장할 파일명</label>
+          <div class="filename-input-row">
+            <input id="save-filename-input" class="text-field" type="text" spellcheck="false">
+            <span id="save-ext-badge" class="ext-badge">.gif</span>
+          </div>
+          <p class="field-hint">기본 파일명은 <strong>원본파일명_ed.gif</strong> 형식으로 자동 설정됩니다.</p>
+        </div>
+
+        <div class="control">
+          <label>저장 위치 (폴더)</label>
+          <div class="folder-picker-box">
+            <div class="folder-info">
+              <span class="folder-icon" aria-hidden="true">📁</span>
+              <div>
+                <strong id="save-folder-display">원본 파일의 폴더</strong>
+                <p id="save-folder-sub" class="folder-sub">기본값으로 원본 파일이 있던 폴더 위치를 안내합니다.</p>
+              </div>
+            </div>
+            <button id="save-choose-folder-btn" class="ghost-holiday-btn" type="button">위치 변경...</button>
+          </div>
+        </div>
+
+        <p id="save-modal-status" class="save-modal-status" hidden></p>
+      </div>
+      <div class="save-modal-footer">
+        <button id="save-modal-cancel" class="return-btn" type="button">취소</button>
+        <button id="save-modal-confirm" class="tree-btn proceed-btn" type="button">🎄 저장 완료</button>
+      </div>
+    </div>
+  </div>
 
   <script src="vendor/ffmpeg/classic.js"></script>
   <script src="boot.js"></script>
